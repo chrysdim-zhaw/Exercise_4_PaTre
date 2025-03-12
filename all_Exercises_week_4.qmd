@@ -1,0 +1,35 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+# Preparation
+
+```{r}
+
+library("readr")
+
+wildschwein <- read_delim("Data/wildschwein_BE_2056.csv", ",")
+
+
+library("sf")
+library("dplyr")
+library(ggplot2)
+
+# Careful! What Timezone is assumed?
+sabi <- wildschwein |>
+    st_as_sf(coords = c("E", "N"), crs = 2056, remove = FALSE) |>
+    filter(
+      TierName == "Sabi", 
+      DatetimeUTC >= "2015-07-01", 
+      DatetimeUTC < "2015-07-03"
+      )
+
+ggplot(sabi) +
+  geom_sf() +
+  coord_sf(crs = 2056) +
+  theme_minimal()
+
+```
+
