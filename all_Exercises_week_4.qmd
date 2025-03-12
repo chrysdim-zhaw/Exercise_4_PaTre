@@ -9,10 +9,7 @@ echo: TRUE
 bibliography: bibliography.bib
 ---
 
-
-# Preparation
-
-## Input: Segmentation
+# Input: Segmentation
 
 ```{r}
 
@@ -40,7 +37,7 @@ ggplot(sabi) +
 
 ```
 
-### Step a): Specify a temporal wondow 
+## Step a): Specify a temporal wondow 
 ```{r}
 
 #define the function
@@ -76,7 +73,7 @@ sabi <- sabi |>
 ```
 
 
-### Step c): Remove “static points”
+## Step c): Remove “static points”
 
 We can now determine if an animal is moving or not by specifying a threshold distance on stepMean. In our example, we use the mean value as a *threshold: Positions with distances below this value are considered static*.
 
@@ -99,4 +96,142 @@ sabi_filter |>
 ```
 
 
+# Exercise A: Segmentation
+With the skills from Input: Segmentation you can now implement the segmentation algorithm described in Laube and Purves (2011) to either your own movement data or to a different wild boar using different sampling intervals.
+
+## Task 1: Calculate distances
+
+Now, you can Step a): Specify a temporal window v and Step b): Measure the distance to every point within v, which you had used with sabi, on your own movement data or to a different wild boar using different sampling intervals.
+
+```{r}
+
+
+unique(wildschwein$TierName)
+
+now <- wildschwein$DatetimeUTC
+later <- lead(now)
+
+difftime_secs <- function(later, now){
+    as.numeric(difftime(later, now))
+}
+
+wildschwein <- wildschwein |> 
+  group_by(TierID) |> 
+  mutate(
+    timelag = difftime_secs(lead(DatetimeUTC), DatetimeUTC)
+    )
+
+wildschwein |>
+  filter(TierName == "Rosa") |>
+  summarise(start_time = min(DatetimeUTC, na.rm = TRUE))
+
+
+rosa <- wildschwein |>
+    st_as_sf(coords = c("E", "N"), crs = 2056, remove = FALSE) |>
+    filter(
+      TierName == "Rosa", 
+      DatetimeUTC >= "2014-11-07", 
+      DatetimeUTC < "2014-11-10"
+      )
+
+ggplot(rosa) +
+  geom_sf() +
+  geom_path(aes(E, N)) +
+  theme_minimal()
+
+
+rosa <- rosa |>
+  arrange(DatetimeUTC) |>
+  mutate(
+    # Distance from pos[n-2] to pos[n]
+    dist_n_minus_2 = distance_by_element(lag(geometry, 2), geometry),
+    # Distance from pos[n-1] to pos[n]
+    dist_n_minus_1 = distance_by_element(lag(geometry, 1), geometry),
+    # Distance from pos[n] to pos[n+1]
+    dist_n_plus_1 = distance_by_element(geometry, lead(geometry, 1)),
+    # Distance from pos[n] to pos[n+2]
+    dist_n_plus_2  = distance_by_element(geometry, lead(geometry, 2))
+  )
+
+
+
+rosa <- rosa |>
+    rowwise() |>
+    mutate(
+        stepMean = mean(c(dist_n_minus_2, dist_n_minus_1, dist_n_plus_1, dist_n_plus_2)) #with na.rm = TRUE the beginning and End would stay
+    )|>
+    ungroup()
+
+```
+
+
+## Task 2: Specify and apply threshold d
+
+After calculating the Euclidean distances to positions within the temporal window v in task 1, you can explore these values (we stored them in the column stepMean) *using summary statistics (histograms, boxplot, summary()): This way we can define a reasonable threshold value to differentiate between stops and moves. There is no “correct” way of doing this*, specifying a threshold always depends on data as well as the question that needs to be answered. In this exercise, use the mean of all stepMean values.
+
+Store the new information (boolean to differentiate between stops (TRUE) and moves (FALSE)) in a new column named static.
+
+
+```{r}
+
+# Compute the threshold from the stepMean values
+threshold <- mean(rosa$stepMean, na.rm = TRUE)
+
+# Create the 'static' column: TRUE when stepMean is below the threshold (stop), FALSE otherwise (move)
+rosa <- rosa |>
+  mutate(static = stepMean < threshold)
+
+
+
+# Summary statistics
+summary(rosa$stepMean)
+
+# Histogram of stepMean values
+hist(rosa$stepMean, 
+     breaks = 30, 
+     main = "Histogram of stepMean Values", 
+     xlab = "stepMean", 
+     col = "lightblue", 
+     border = "black")
+
+# Boxplot of stepMean values
+boxplot(rosa$stepMean, 
+        main = "Boxplot of stepMean Values", 
+        ylab = "stepMean", 
+        col = "lightgreen")
+```
+
+
+## Task 3: Visualize segmented trajectories
+
+Now visualize the segmented trajectory spatially. Just like last week, you can use ggplot with geom_path(), geom_point() and coord_equal(). Assign colour = static within aes() to distinguish between segments with “movement” and without.
+
+```{r}
+
+# Extract coordinates into columns
+rosa_coords <- cbind(rosa, st_coordinates(rosa))
+
+ggplot(rosa_coords) +
+  geom_path(aes(x = X, y = Y, color = static), size = 1) +
+  geom_point(aes(x = X, y = Y, color = static), size = 2) +
+  coord_equal() +
+  labs(title = "Segmented Trajectory of Rosa",
+       x = "Easting", y = "Northing",
+       color = "Static") +
+  theme_minimal()
+
+# or 
+rosa_filter <- rosa |>
+    filter(!static)
+
+rosa_filter |>
+    ggplot(aes(E, N)) +
+    geom_point(data = rosa, col = "red") +
+    geom_path() +
+    geom_point() +
+    coord_fixed() +
+    theme(legend.position = "bottom")
+
+
+```
 
