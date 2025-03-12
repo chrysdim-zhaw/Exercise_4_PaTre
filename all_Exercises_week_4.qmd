@@ -5,18 +5,19 @@ format: html
 toc: true  # Enable Table of Contents
 toc-depth: 3  # Optional: Set the depth of ToC (default is 3)
 number-sections: true  # Optional: Number headings in the document
-echo: TRUE
+echo: FALSE
 bibliography: bibliography.bib
 ---
 
 # Input: Segmentation
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 
 library("readr")
 library("sf")
 library("dplyr")
 library(ggplot2)
+library(tidyverse)
 
 wildschwein <- read_delim("Data/wildschwein_BE_2056.csv", ",")
 
@@ -70,12 +71,14 @@ sabi <- sabi |>
     )|>
     ungroup()
 
+sabi
+
 ```
 
 
 ## Step c): Remove “static points”
 
-We can now determine if an animal is moving or not by specifying a threshold distance on stepMean. In our example, we use the mean value as a *threshold: Positions with distances below this value are considered static*.
+We can now determine if an animal is moving or not by specifying a threshold distance on stepMean. In our example, we use the mean value as a **threshold: Positions with distances below this value are considered static**.
 
 ```{r}
 sabi <- sabi |>
@@ -162,12 +165,13 @@ rosa <- rosa |>
     )|>
     ungroup()
 
+rosa
 ```
 
 
 ## Task 2: Specify and apply threshold d
 
-After calculating the Euclidean distances to positions within the temporal window v in task 1, you can explore these values (we stored them in the column stepMean) *using summary statistics (histograms, boxplot, summary()): This way we can define a reasonable threshold value to differentiate between stops and moves. There is no “correct” way of doing this*, specifying a threshold always depends on data as well as the question that needs to be answered. In this exercise, use the mean of all stepMean values.
+After calculating the Euclidean distances to positions within the temporal window v in task 1, you can explore these values (we stored them in the column stepMean) **using summary statistics (histograms, boxplot, summary()): This way we can define a reasonable threshold value to differentiate between stops and moves. There is no “correct” way of doing this**, specifying a threshold always depends on data as well as the question that needs to be answered. In this exercise, use the mean of all stepMean values.
 
 Store the new information (boolean to differentiate between stops (TRUE) and moves (FALSE)) in a new column named static.
 
@@ -176,6 +180,7 @@ Store the new information (boolean to differentiate between stops (TRUE) and mov
 
 # Compute the threshold from the stepMean values
 threshold <- mean(rosa$stepMean, na.rm = TRUE)
+
 
 # Create the 'static' column: TRUE when stepMean is below the threshold (stop), FALSE otherwise (move)
 rosa <- rosa |>
@@ -199,7 +204,11 @@ boxplot(rosa$stepMean,
         main = "Boxplot of stepMean Values", 
         ylab = "stepMean", 
         col = "lightgreen")
+
+
 ```
+
+threshold = mean = 11.5 
 
 
 ## Task 3: Visualize segmented trajectories
@@ -224,6 +233,7 @@ ggplot(rosa_coords) +
 rosa_filter <- rosa |>
     filter(!static)
 
+
 rosa_filter |>
     ggplot(aes(E, N)) +
     geom_point(data = rosa, col = "red") +
@@ -232,6 +242,56 @@ rosa_filter |>
     coord_fixed() +
     theme(legend.position = "bottom")
 
+
+```
+
+
+## Task 4: Segment-based analysis
+
+In applying Laube and Purves (2011), we’ve come as far as step b) in Figure 16.1. In order to complete the last steps (c and d), we need a unique ID for each segment that we can use as a grouping variable. The following function does just that (it assigns unique IDs based on the column static which you created in Task 2). You will learn about functions next week. For now, just copy the following code chunk into your script and run it.
+
+
+```{r}
+
+rle_id <- function(vec) {
+    x <- rle(vec)$lengths
+    as.factor(rep(seq_along(x), times = x))
+}
+
+
+rosa <- rosa |>
+    mutate(segment_id = rle_id(static))
+
+# Calculate duration for each segment in minutes
+segment_info <- rosa |>
+  group_by(segment_id) |>
+  summarise(
+    start_time = min(DatetimeUTC),
+    end_time = max(DatetimeUTC),
+    duration = as.numeric(difftime(end_time, start_time, units = "mins"))
+  )
+
+# Remove segments with duration < 5 minutes
+valid_segments <- segment_info |>
+  filter(duration >= 5)
+
+# Keep only observations in valid segments
+rosa_valid <- rosa |>
+  filter(segment_id %in% valid_segments$segment_id)
+
+
+# Extract coordinates for plotting
+rosa_coords <- cbind(rosa_valid, st_coordinates(rosa_valid))
+
+# Create the plot with path and point layers
+ggplot(rosa_coords) +
+  geom_path(aes(x = X, y = Y, color = segment_id), size = 1) +
+  geom_point(aes(x = X, y = Y, color = segment_id), size = 2) +
+  coord_equal() +
+  labs(title = "Segmented Trajectory by Segment ID",
+       x = "Easting", y = "Northing",
+       color = "Segment ID") +
+  theme_minimal()
 
 ```
 
